@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>简易叫号系统</title>
+    <style>
+        body { font-family: sans-serif; text-align: center; margin-top: 50px; }
+        input, button { font-size: 20px; padding: 10px; margin: 5px; }
+    </style>
+</head>
+<body>
+    <h1>简易叫号系统</h1>
+    <p>连接状态: <span id="status">正在连接...</span></p>
+
+    <div>班级：<input id="roomId" placeholder="请输入班级" /></div>
+
+    <!-- 控制器界面 (主要用于手机) -->
+    <div id="controller">
+        <input type="text" id="numberInput" placeholder="请输入内容">
+        <button onclick="callNumber()">呼叫</button>
+    </div>
+    <!-- <div>
+        <video id="video"></video>
+    </div> -->
+
+    <!-- 引入Socket.IO客户端库 -->
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        // 建立与服务器的连接
+        const socket = io();
+        const statusElement = document.getElementById('status');
+        const controllerDiv = document.getElementById('controller');
+        // const videoElement = document.getElementById('video');
+
+        // 连接成功
+        socket.on('connect', () => {
+            statusElement.textContent = '已连接 (' + socket.id + ')';
+            statusElement.style.color = 'green';
+        });
+
+        // 连接断开
+        socket.on('disconnect', () => {
+            statusElement.textContent = '连接断开';
+            statusElement.style.color = 'red';
+        });
+
+        // 从手机端发送呼叫指令到服务器
+        function callNumber() {
+            const number = document.getElementById('numberInput').value;
+            const roomId = document.getElementById('roomId').value;
+            if (number) {
+                // 向服务器发送一个‘callNumber’事件，附带号码数据
+                socket.emit('callNumber', { number, roomId, });
+            }
+        }
+
+        // socket.on('videoStreamDownload', (data) => {
+        //     console.log('data', data);
+        //     videoElement.srcObject = data.media;
+        //     videoElement.play();
+        // });
+
+        const pc = new RTCPeerConnection();
+        pc.ondatachannel = e => {
+            const channel = e.channel;
+            channel.onmessage = ev => console.log("收到:", ev.data);
+        };
+
+        socket.on('getWebRTCOffer', (data) => {
+            pc.setRemoteDescription({ type: "offer", sdp: data.offer.sdp });
+            pc.createAnswer().then(answer => {
+                pc.setLocalDescription(answer);
+                console.log('answer', answer);
+                // 将 answer.sdp 发送回 A
+                socket.emit('sendWebRTCAnswer', { answer });
+            });
+        });
+    </script>
+</body>
+</html>

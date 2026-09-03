@@ -1,0 +1,24 @@
+{
+  "name": "speech",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "dev": "node index.js",
+    "build": "pkg -t node10-win-x64 . --output speech"
+  },
+  "author": "sarusama",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "express": "^4.21.2",
+    "socket.io": "^2.5.1"
+  },
+  "bin": "index.js",
+  "pkg": {
+    "target": [
+      "node-v10.24.1-win-x64"
+    ],
+    "outputPath": "dist",
+    "output": "speech"
+  }
+}
