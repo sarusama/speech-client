@@ -3,95 +3,259 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>简易叫号系统</title>
+    <title>叫号系统</title>
     <style>
         body { font-family: sans-serif; text-align: center; margin-top: 50px; }
-        #controller { display: none; } /* 默认隐藏控制器 */
         input, button { font-size: 20px; padding: 10px; margin: 5px; }
     </style>
 </head>
 <body>
-    <h1>简易叫号系统</h1>
+    <h1>叫号系统</h1>
     <p>连接状态: <span id="status">正在连接...</span></p>
-    <div>
-        <div style="display: flex;justify-content: center;">房间号：<div id="text-room-id"></div></div>
-        <input placeholder="请输入房间号" id="roomId" />
-        <button onclick="confirm()">确认</button>
+
+    <div>班级：<input id="roomId" placeholder="请输入班级" /></div>
+
+    <!-- 控制器界面 (主要用于手机) -->
+    <div id="controller">
+        <input type="text" id="numberInput" placeholder="请输入内容">
+        <button onclick="callNumber()">呼叫</button>
     </div>
-    <!-- 引入Socket.IO客户端库 -->
-    <script src="/socket.io/socket.io.js"></script>
+    <div id="message"></div>
+    <div>
+        <div>
+            <button onclick="openVideo()">看班级</button>
+            <button onclick="closeVideo()">关摄像头</button>
+        </div>
+        <video id="video" autoplay muted playsInline />
+    </div>
     <script>
         // 建立与服务器的连接
-        const socket = io();
-        const textRoomId = document.getElementById('text-room-id');
+        const websocketURL = `ws://${window.location.host}`;
+        const clientId = Math.random().toString(36).slice(2, 10);
+        let socket = null;
         const statusElement = document.getElementById('status');
-        let localStorageRoomId = localStorage.getItem('roomId');
+        const controllerDiv = document.getElementById('controller');
+        const messageDiv = document.getElementById('message');
+        const videoWrapperElement = document.getElementById('videoWrapper');
 
-        if (localStorageRoomId) {
-            textRoomId.textContent = localStorageRoomId;
-        } else {
-            textRoomId.textContent = '-';
-        }
-
-        const confirm = () => {
-            const roomId = document.getElementById('roomId').value;
-            localStorage.setItem('roomId', roomId);
-            localStorageRoomId = roomId;
-            textRoomId.textContent = roomId;
-        };
-
-        // 连接成功
-        socket.on('connect', () => {
-            statusElement.textContent = '已连接 (' + socket.id + ')';
-            statusElement.style.color = 'green';
-        });
-
-        // 连接断开
-        socket.on('disconnect', () => {
-            statusElement.textContent = '连接断开';
-            statusElement.style.color = 'red';
-        });
-
-        socket.on('playSound', (event) => {
-            console.log('localStorageRoomId', localStorageRoomId, event, localStorageRoomId.toString() === event.roomId);
-            if (localStorageRoomId.toString() === event.roomId) {
-                speakNumber(event.number);
-            }
-        });
-
-        // 使用Web Speech API朗读文本
-        function speakNumber(num) {
-            const utterance = new SpeechSynthesisUtterance(num);
-            utterance.lang = 'zh-CN'; // 设置中文语音
-            utterance.rate = 1.0; // 语速
-            speechSynthesis.speak(utterance);
-        }
-
-        // navigator
-        //     .mediaDevices
-        //     .getUserMedia({ video: true, audio: true })
-        //     .then((result) => {
-        //         socket.emit('videoStreamUpload', { media: result });
-        //     });
+        const videoElement = document.getElementById('video');
 
         const pc = new RTCPeerConnection();
+        let channel = null;
 
-        pc.createOffer().then((offer) => {
-            pc.setLocalDescription(offer);
-            console.log('offer', offer);
-            // 将 offer.sdp 发送给 B（通过信令服务器/手动复制）
-            socket.emit('sendWebRTCOffer', { offer });
-        });
+        let camera = false;
 
-        socket.on('getWebRTCAnswer', (data) => {
-            console.log('web rtc', data);
-            pc.setRemoteDescription({ type: 'answer', sdp: data.answer.sdp });
-            const channel = pc.createDataChannel("chat");
-            channel.onopen = () => {
-                channel.onmessage = e => console.log("收到消息:", e.data);
-                channel.send('已连接');
+        pc.addTransceiver('video', { direction: 'sendrecv' });
+        pc.addTransceiver('audio', { direction: 'sendrecv' });
+
+        function connect() {
+            console.log('connect');
+            socket = new WebSocket(websocketURL);
+
+            socket.onopen = async () => {
+                console.log('连接成功');
+                statusElement.textContent = '已连接';
+                statusElement.style.color = 'green';
+
+
+                await createOffer();
             };
-        });
+
+            socket.onmessage = async (event) => {
+                console.log('收到消息', event);
+                const message = JSON.parse(event.data);
+                if (message.to === clientId) {
+                    if (message.type === 'sendMessageSuccess') {
+                        messageDiv.textContent = `${message.from}-已收到消息`;
+                    } else if (message.type === 'known') {
+                        messageDiv.textContent = `${message.from}-知道了`;
+                    } else if (message.type === 'sendWebRTCAnswer') {
+                        console.log(pc.signalingState);
+                        await pc.setRemoteDescription(message.data);
+                        console.log(pc.signalingState);
+
+                        console.log('pc', pc.connectionState, pc.localDescription, pc.remoteDescription);
+
+                        // console.log('pc', pc);
+
+                        // pc.ondatachannel = (event) => {
+                        //     console.log('event', event);
+                        //     channel = event.channel;
+
+                        //     channel.onopen = () => {
+                        //         console.log('接收方数据通道已打开');
+                        //     };
+
+                        //     channel.onmessage = (event) => {
+                        //         console.log('接收方收到:', event.data);
+                        //     };
+                        // };
+                    } else if (message.type === 'openedCamera') {
+                        await createOffer();
+                    } else if (message.type === 'closedCamera') {
+                        // await createOffer();
+                    }
+                }
+            };
+
+            socket.onclose = () => {
+                console.log('连接关闭');
+                statusElement.textContent = '连接断开，重连中...';
+                statusElement.style.color = 'red';
+
+                setTimeout(() => {
+                    connect();
+                }, 1000);
+            };
+
+            socket.onerror = (error) => {
+                console.log('连接错误', error);
+            };
+
+            setTimeout(() => {
+                if (socket.readyState === WebSocket.CONNECTING) {
+                    console.log('连接超时');
+
+                    socket.close();
+                }
+            }, 10000);
+        }
+
+        // 从手机端发送呼叫指令到服务器
+        function callNumber() {
+            const number = document.getElementById('numberInput').value;
+            const roomId = document.getElementById('roomId').value;
+            if (number) {
+                // // 向服务器发送一个‘callNumber’事件，附带号码数据
+                // socket.emit('callNumber', { number, roomId, });
+                socket.send(JSON.stringify({
+                    type: 'callNumber',
+                    from: clientId,
+                    to: roomId,
+                    data: number
+                }));
+            }
+        }
+
+        // 看摄像头
+        const openVideo = async () => {
+            if (camera) {
+                return ;
+            }
+            camera = true;
+            const roomId = document.getElementById('roomId').value;
+            // 开摄像头
+            socket.send(JSON.stringify({
+                type: 'openCamera',
+                from: clientId,
+                to: roomId,
+            }));
+        };
+
+        async function createOffer() {
+            const roomId = document.getElementById('roomId').value;
+
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+            // console.log('offer', offer);
+            // // 将 offer.sdp 发送给 B（通过信令服务器/手动复制）
+            socket.send(JSON.stringify({
+                type: 'sendWebRTCOffer',
+                from: clientId,
+                to: roomId,
+                data: offer,
+            }));
+        }
+
+        function closeVideo() {
+            if (!camera) {
+                return ;
+            }
+            const roomId = document.getElementById('roomId').value;
+            socket.send(JSON.stringify({
+                type: 'closeCamera',
+                from: clientId,
+                to: roomId,
+            }));
+            // videoElement.srcObject = null;
+            // videoElement.remove();
+            camera = false;
+        }
+
+        pc.ontrack = (event) => {
+            // event.streams[0] 通常就是远端流
+            console.log('track event', event);
+            if (event.streams && event.streams[0]) {
+                videoElement.srcObject = null;
+                videoElement.srcObject = event.streams[0];
+                videoElement.onloadedmetadata = () => {
+                    videoElement.play();
+                };
+            }
+        };
+
+        pc.onnegotiationneeded = async (event) => {
+            console.log('onnegotiationneeded', event);
+            // await createOffer();
+        }
+
+        pc.onicecandidate = (event) => {
+            console.log('onicecandidate event', event);
+            const roomId = document.getElementById('roomId').value;
+            if (event.candidate) {
+                socket.send(JSON.stringify({
+                    type: 'iceCandidate',
+                    from: clientId,
+                    to: roomId,
+                    data: event.candidate,
+                }));
+            } else {
+                socket.send(JSON.stringify({
+                    type: 'iceCandidateComplete',
+                    from: clientId,
+                    to: roomId,
+                }));
+            }
+        };
+
+        pc.onicegatheringstatechange = (event) => {
+            console.log('onicegatheringstatechange', event);
+        };
+
+        pc.oniceconnectionstatechange = (event) => {
+            console.log('oniceconnectionstatechange', event)
+        };
+
+        pc.onicecandidateerror = (event) => {
+            console.log('onicecandidateerror', event);
+        };
+
+        pc.onconnectionstatechange = (event) => {
+            console.log('onconnectionstatechange', event);
+        };
+
+        // socket.on('videoStreamDownload', (data) => {
+        //     console.log('data', data);
+        //     videoElement.srcObject = data.media;
+        //     videoElement.play();
+        // });
+
+        // pc.ondatachannel = e => {
+        //     const channel = e.channel;
+        //     channel.onmessage = ev => console.log("收到:", ev.data);
+        // };
+
+        // socket.on('getWebRTCOffer', (data) => {
+        //     pc.setRemoteDescription({ type: "offer", sdp: data.offer.sdp });
+        //     pc.createAnswer().then(answer => {
+        //         pc.setLocalDescription(answer);
+        //         console.log('answer', answer);
+        //         // 将 answer.sdp 发送回 A
+        //         socket.emit('sendWebRTCAnswer', { answer });
+        //     });
+        // });
+
+        connect();
     </script>
 </body>
 </html>

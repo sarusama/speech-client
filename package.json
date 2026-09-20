@@ -4,19 +4,22 @@
   "main": "index.js",
   "scripts": {
     "dev": "node index.js",
-    "build": "pkg -t node10-win-x64 . --output speech"
+    "build-win": "pkg -t node10-win-x64 . --output speech",
+    "build-win11": "pkg -t node18-win-x64 . --output speech",
+    "build-linux": "pkg -t node18-linux-x64 . --output speech"
   },
   "author": "sarusama",
   "license": "ISC",
   "description": "",
   "dependencies": {
     "express": "^4.21.2",
-    "socket.io": "^2.5.1"
+    "ws": "^8.21.3"
   },
   "bin": "index.js",
   "pkg": {
     "target": [
-      "node-v10.24.1-win-x64"
+      "node-v10.24.1-win-x64",
+      "node-v10.24.1-linux-x64"
     ],
     "outputPath": "dist",
     "output": "speech"
